@@ -1,31 +1,24 @@
-// === Aiden's Cloud — Script (rollback: demo tiles + Add pCloud by ID) ===
+// === Aiden's Cloud — App.js with token auto-check ===
 
-// -------- Settings --------
 const DEFAULT_COVER = "assets/foldercover.png";
+const LS_LINKED = "pcloud_linked_folders";
 
-// Optional local demo data
+// Local demo data (so you always see something)
 const localData = {
-  id: "local-root",
-  name: "Local Demo",
   folders: [
     {
       id: "holiday",
       name: "Holiday",
       cover: DEFAULT_COVER,
-      folders: [],
       files: [
-        { id:1, name:"Beach.png", type:"photo", size:2000, date:"2024-08-01", thumb:"https://picsum.photos/300/200?1", url:"https://picsum.photos/1200/800?1", favorite:true },
-        { id:2, name:"Party.mp4", type:"video", size:50000, date:"2024-08-03", thumb:"https://picsum.photos/300/200?3", url:"https://www.w3schools.com/html/mov_bbb.mp4", favorite:true }
+        { id: 1, name: "Beach.png", type: "photo", thumb: "https://picsum.photos/300/200?1", url: "https://picsum.photos/1200/800?1" },
+        { id: 2, name: "Party.mp4", type: "video", thumb: "https://picsum.photos/300/200?3", url: "https://www.w3schools.com/html/mov_bbb.mp4" }
       ]
     }
-  ],
-  files: [
-    { id:4, name:"Mountains.png", type:"photo", size:3000, date:"2024-08-05", thumb:"https://picsum.photos/300/200?2", url:"https://picsum.photos/1200/800?2", favorite:false }
   ]
 };
 
-// pCloud-linked folders saved in localStorage
-const LS_LINKED = "pcloud_linked_folders";
+// Storage helpers
 function loadLinkedFolders() {
   try { return JSON.parse(localStorage.getItem(LS_LINKED)) || []; } catch { return []; }
 }
@@ -40,33 +33,38 @@ function addLinkedFolder(folderid, name, cover) {
   }
 }
 
-// UI State
-let currentProvider = "home"; // "home" | "pcloud"
-let currentFolderCtx = null;  // { provider:"pcloud", folderid, name }
-let currentFilter = "all";
-let currentSearch = "";
-let currentSort = "name";
+// State
+let currentProvider = "home";
+let currentFolderCtx = null;
 
-// Rendering
-function render() {
-  if (currentProvider === "home") renderHome();
-  else if (currentProvider === "pcloud") renderPcloudFolder();
+// --- Validate token ---
+async function validateToken() {
+  const t = PCLOUD_OAUTH.getToken();
+  if (!t) return false;
+  try {
+    const res = await fetch(`https://api.pcloud.com/userinfo?access_token=${encodeURIComponent(t)}`);
+    const data = await res.json();
+    console.log("[app.js] /userinfo check →", data);
+    if (data.result === 0) return true;
+  } catch (e) {
+    console.warn("[app.js] Token validation failed:", e);
+  }
+  // If here → invalid
+  PCLOUD_OAUTH.logout();
+  return false;
 }
 
-function renderHome() {
+// --- Render home ---
+async function renderHome() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
 
-  // Auth bar
-  const token = PCLOUD_OAUTH.getToken();
   const authBar = document.createElement("div");
-  authBar.style.width = "100%";
-  authBar.style.display = "flex";
-  authBar.style.justifyContent = "center";
-  authBar.style.gap = "10px";
-  authBar.style.marginBottom = "10px";
+  authBar.style.cssText = "width:100%;display:flex;justify-content:center;gap:10px;margin-bottom:10px;";
 
-  if (!token) {
+  const tokenOk = await validateToken();
+
+  if (!tokenOk) {
     const b = document.createElement("button");
     b.textContent = "Connect pCloud";
     b.onclick = () => PCLOUD_OAUTH.login();
@@ -74,8 +72,8 @@ function renderHome() {
   } else {
     const addBtn = document.createElement("button");
     addBtn.textContent = "Add pCloud folder by ID";
-    addBtn.onclick = async () => {
-      const folderid = prompt("Enter pCloud folder ID (0 for root /):", "0");
+    addBtn.onclick = () => {
+      const folderid = prompt("Enter pCloud folder ID (0 = root):", "0");
       if (folderid == null) return;
       const customName = prompt("Display name for this folder:", folderid === "0" ? "pCloud Root" : `Folder ${folderid}`);
       addLinkedFolder(folderid, customName, DEFAULT_COVER);
@@ -90,7 +88,7 @@ function renderHome() {
   }
   grid.appendChild(authBar);
 
-  // Local demo tiles
+  // Local demo folder
   localData.folders.forEach(folder => {
     const div = document.createElement("div");
     div.className = "folder";
@@ -102,9 +100,8 @@ function renderHome() {
     grid.appendChild(div);
   });
 
-  // pCloud linked folders
-  const linked = loadLinkedFolders();
-  linked.forEach(folder => {
+  // Linked pCloud folders
+  loadLinkedFolders().forEach(folder => {
     const div = document.createElement("div");
     div.className = "folder";
     div.innerHTML = `
@@ -115,14 +112,14 @@ function renderHome() {
     grid.appendChild(div);
   });
 
-  // breadcrumbs
-  document.getElementById("breadcrumbs").innerHTML = `Home`;
+  document.getElementById("breadcrumbs").innerHTML = "Home";
 }
 
+// --- Local demo viewer ---
 function openLocalFolder(folder) {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
-  document.getElementById("breadcrumbs").innerHTML = `<span onclick="goHome()">Home</span> / <span>${folder.name}</span>`;
+  document.getElementById("breadcrumbs").innerHTML = `<span onclick="goHome()">Home</span> / ${folder.name}`;
 
   folder.files.forEach(f => {
     const div = document.createElement("div");
@@ -136,22 +133,22 @@ function openLocalFolder(folder) {
   });
 }
 
-// pCloud folder navigation
+// --- pCloud folder view ---
 async function openPcloudFolder(folderid, name) {
   currentProvider = "pcloud";
-  currentFolderCtx = { provider: "pcloud", folderid, name };
+  currentFolderCtx = { folderid, name };
   await renderPcloudFolder();
 }
 
 async function renderPcloudFolder() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
+  document.getElementById("breadcrumbs").innerHTML = `<span onclick="goHome()">Home</span> / ${currentFolderCtx.name}`;
 
-  // breadcrumbs
-  const bc = document.getElementById("breadcrumbs");
-  bc.innerHTML = `<span onclick="goHome()">Home</span> / <span>${currentFolderCtx.name}</span>`;
+  // validate token before call
+  const ok = await validateToken();
+  if (!ok) { renderHome(); return; }
 
-  // fetch listing
   let listing;
   try {
     listing = await pcloud.listFolder(currentFolderCtx.folderid);
@@ -160,11 +157,9 @@ async function renderPcloudFolder() {
     return;
   }
 
-  const contents = listing.metadata && listing.metadata.contents ? listing.metadata.contents : [];
-  const subfolders = contents.filter(c => c.isfolder);
-  const files = contents.filter(c => c.isfile);
+  const subfolders = (listing.metadata?.contents || []).filter(c => c.isfolder);
+  const files = (listing.metadata?.contents || []).filter(c => c.isfile);
 
-  // subfolders
   subfolders.forEach(f => {
     const div = document.createElement("div");
     div.className = "folder";
@@ -176,12 +171,7 @@ async function renderPcloudFolder() {
     grid.appendChild(div);
   });
 
-  // files
   for (const f of files) {
-    const div = document.createElement("div");
-    div.className = "file";
-
-    // Attempt a direct link for preview
     let linkUrl = "";
     try {
       const linkRes = await pcloud.getFileLink(f.fileid);
@@ -195,6 +185,8 @@ async function renderPcloudFolder() {
     const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name);
     const thumb = isImage && linkUrl ? linkUrl : "https://picsum.photos/300/200?blur=2";
 
+    const div = document.createElement("div");
+    div.className = "file";
     div.innerHTML = `
       <img src="${thumb}" class="file-thumb" alt="${f.name}">
       <p class="file-name">${f.name}</p>
@@ -204,25 +196,14 @@ async function renderPcloudFolder() {
   }
 }
 
-// Navigation
-function goHome() {
-  currentProvider = "home";
-  currentFolderCtx = null;
-  render();
-}
-
-// Search / Sort / Filter hooks (placeholders)
-function setFilter(f) { currentFilter = f; render(); }
-
-// Viewer
+// --- Nav + viewer ---
+function goHome() { currentProvider = "home"; currentFolderCtx = null; render(); }
 function openViewer(file) {
   const viewer = document.getElementById("viewer");
   const content = document.getElementById("viewer-content");
-  if (file.type === "photo") {
-    content.innerHTML = `<img src="${file.url}" alt="${file.name}">`;
-  } else {
-    content.innerHTML = `<video src="${file.url}" controls autoplay></video>`;
-  }
+  content.innerHTML = file.type === "photo"
+    ? `<img src="${file.url}" alt="${file.name}">`
+    : `<video src="${file.url}" controls autoplay></video>`;
   viewer.style.display = "flex";
 }
 function closeViewer() {
@@ -230,26 +211,13 @@ function closeViewer() {
   document.getElementById("viewer-content").innerHTML = "";
 }
 
-// Boot
+// --- Boot ---
 document.addEventListener("DOMContentLoaded", () => {
-  // Handle OAuth redirect (first login)
-  PCLOUD_OAUTH.handleRedirectHash();
-
-  const searchEl = document.getElementById("search");
-  const sortEl = document.getElementById("sort");
-
-  if (searchEl) {
-    searchEl.addEventListener("input", e => {
-      currentSearch = e.target.value;
-      render();
-    });
-  }
-  if (sortEl) {
-    sortEl.addEventListener("change", e => {
-      currentSort = e.target.value;
-      render();
-    });
-  }
-
-  render();
+  PCLOUD_OAUTH.handleRedirectHash(); // pick up new token if just logged in
+  renderHome();
 });
+
+// expose for HTML buttons
+window.goHome = goHome;
+window.openViewer = openViewer;
+window.closeViewer = closeViewer;

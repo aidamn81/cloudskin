@@ -1,7 +1,7 @@
 
 // pcloud-auth.js — set your real Client ID
 const PCLOUD_OAUTH = {
-  clientId: "YOUR_PCLOUD_APP_CLIENT_ID",
+  clientId: "PVqQO9u7C1b",
   redirectUri: "https://aidamn81.github.io/cloudskin/",
   authBase: "https://my.pcloud.com/oauth2/authorize",
   tokenKey: "pcloud_access_token",

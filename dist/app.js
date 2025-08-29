@@ -1,9 +1,9 @@
-// === Aiden's Cloud — App.js with token auto-check ===
+// === Aiden's Cloud — App.js with token auto-check + visible notices ===
 
 const DEFAULT_COVER = "assets/foldercover.png";
 const LS_LINKED = "pcloud_linked_folders";
 
-// Local demo data (so you always see something)
+// Local demo data so there's always something to see
 const localData = {
   folders: [
     {
@@ -18,13 +18,11 @@ const localData = {
   ]
 };
 
-// Storage helpers
+// --- Linked folders storage helpers ---
 function loadLinkedFolders() {
   try { return JSON.parse(localStorage.getItem(LS_LINKED)) || []; } catch { return []; }
 }
-function saveLinkedFolders(list) {
-  localStorage.setItem(LS_LINKED, JSON.stringify(list));
-}
+function saveLinkedFolders(list) { localStorage.setItem(LS_LINKED, JSON.stringify(list)); }
 function addLinkedFolder(folderid, name, cover) {
   const list = loadLinkedFolders();
   if (!list.find(f => String(f.id) === String(folderid))) {
@@ -33,11 +31,28 @@ function addLinkedFolder(folderid, name, cover) {
   }
 }
 
-// State
+// --- UI state ---
 let currentProvider = "home";
 let currentFolderCtx = null;
 
-// --- Validate token ---
+// --- Notice (visible message) ---
+let noticeMessage = "";
+function setNotice(msg) { noticeMessage = msg || ""; }
+function renderNotice(containerEl) {
+  // Remove old
+  const old = containerEl.querySelector(".notice");
+  if (old) old.remove();
+
+  if (!noticeMessage) return;
+  const n = document.createElement("div");
+  n.className = "notice";
+  // Inline styles so you don't need to edit CSS
+  n.style.cssText = "width:100%;max-width:900px;margin:0 auto 12px auto;padding:10px 14px;border-radius:8px;background:rgba(255,255,255,0.16);color:#fff;text-align:center;font-weight:bold;";
+  n.textContent = noticeMessage;
+  containerEl.prepend(n);
+}
+
+// --- Token check ---
 async function validateToken() {
   const t = PCLOUD_OAUTH.getToken();
   if (!t) return false;
@@ -54,11 +69,15 @@ async function validateToken() {
   return false;
 }
 
-// --- Render home ---
+// --- Home view ---
 async function renderHome() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
 
+  // Show notice (if any)
+  renderNotice(grid);
+
+  // Auth bar
   const authBar = document.createElement("div");
   authBar.style.cssText = "width:100%;display:flex;justify-content:center;gap:10px;margin-bottom:10px;";
 
@@ -82,7 +101,7 @@ async function renderHome() {
 
     const logoutBtn = document.createElement("button");
     logoutBtn.textContent = "Log out of pCloud";
-    logoutBtn.onclick = () => { PCLOUD_OAUTH.logout(); render(); };
+    logoutBtn.onclick = () => { PCLOUD_OAUTH.logout(); setNotice("Logged out of pCloud."); render(); };
 
     authBar.append(addBtn, logoutBtn);
   }
@@ -121,6 +140,10 @@ function openLocalFolder(folder) {
   grid.innerHTML = "";
   document.getElementById("breadcrumbs").innerHTML = `<span onclick="goHome()">Home</span> / ${folder.name}`;
 
+  // Clear any old notice in folder views
+  setNotice("");
+  renderNotice(grid);
+
   folder.files.forEach(f => {
     const div = document.createElement("div");
     div.className = "file";
@@ -133,7 +156,7 @@ function openLocalFolder(folder) {
   });
 }
 
-// --- pCloud folder view ---
+// --- pCloud folder views ---
 async function openPcloudFolder(folderid, name) {
   currentProvider = "pcloud";
   currentFolderCtx = { folderid, name };
@@ -145,21 +168,35 @@ async function renderPcloudFolder() {
   grid.innerHTML = "";
   document.getElementById("breadcrumbs").innerHTML = `<span onclick="goHome()">Home</span> / ${currentFolderCtx.name}`;
 
-  // validate token before call
+  // Validate token first
   const ok = await validateToken();
-  if (!ok) { renderHome(); return; }
+  if (!ok) {
+    setNotice("Session expired or invalid token. Please reconnect to pCloud.");
+    currentProvider = "home";
+    await renderHome();
+    return;
+  }
 
+  // Clear notice if we made it here
+  setNotice("");
+  renderNotice(grid);
+
+  // List the folder
   let listing;
   try {
     listing = await pcloud.listFolder(currentFolderCtx.folderid);
   } catch (e) {
-    grid.innerHTML = `<p style="color:#fff">Error loading folder: ${e.message}</p>`;
+    setNotice(`Could not load folder: ${e.message}`);
+    currentProvider = "home";
+    await renderHome();
     return;
   }
 
-  const subfolders = (listing.metadata?.contents || []).filter(c => c.isfolder);
-  const files = (listing.metadata?.contents || []).filter(c => c.isfile);
+  const contents = listing.metadata?.contents || [];
+  const subfolders = contents.filter(c => c.isfolder);
+  const files = contents.filter(c => c.isfile);
 
+  // Subfolders
   subfolders.forEach(f => {
     const div = document.createElement("div");
     div.className = "folder";
@@ -171,6 +208,7 @@ async function renderPcloudFolder() {
     grid.appendChild(div);
   });
 
+  // Files
   for (const f of files) {
     let linkUrl = "";
     try {
@@ -196,8 +234,9 @@ async function renderPcloudFolder() {
   }
 }
 
-// --- Nav + viewer ---
-function goHome() { currentProvider = "home"; currentFolderCtx = null; render(); }
+// --- Navigation + viewer ---
+function goHome() { currentProvider = "home"; currentFolderCtx = null; renderHome(); }
+
 function openViewer(file) {
   const viewer = document.getElementById("viewer");
   const content = document.getElementById("viewer-content");
@@ -213,11 +252,11 @@ function closeViewer() {
 
 // --- Boot ---
 document.addEventListener("DOMContentLoaded", () => {
-  PCLOUD_OAUTH.handleRedirectHash(); // pick up new token if just logged in
+  PCLOUD_OAUTH.handleRedirectHash(); // pick up token on login redirect
   renderHome();
 });
 
-// expose for HTML buttons
+// Expose for HTML buttons (if any)
 window.goHome = goHome;
 window.openViewer = openViewer;
 window.closeViewer = closeViewer;

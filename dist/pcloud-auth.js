@@ -1,11 +1,11 @@
-
-// pcloud-auth.js — set your real Client ID
+// pcloud-auth.js — Minimal OAuth (Implicit Flow)
 const PCLOUD_OAUTH = {
-  clientId: "PVqQO9u7C1b",
-  redirectUri: "https://aidamn81.github.io/cloudskin/",
+  clientId: "PVqQO9u7C1b", // your pCloud App Client ID
+  redirectUri: "https://aidamn81.github.io/cloudskin/", // must match your app settings
   authBase: "https://my.pcloud.com/oauth2/authorize",
   tokenKey: "pcloud_access_token",
 
+  // Start OAuth login
   login() {
     const params = new URLSearchParams({
       client_id: this.clientId,
@@ -15,18 +15,27 @@ const PCLOUD_OAUTH = {
     window.location.href = `${this.authBase}?${params.toString()}`;
   },
 
+  // Capture access_token from redirect URL
   handleRedirectHash() {
     if (!window.location.hash) return null;
     const h = new URLSearchParams(window.location.hash.substring(1));
     const token = h.get("access_token");
     if (token) {
       localStorage.setItem(this.tokenKey, token);
-      history.replaceState({}, document.title, window.location.pathname + window.location.search);
+      // clean up URL so token isn’t visible
+      history.replaceState({}, document.title, this.redirectUri);
       return token;
     }
     return null;
   },
 
-  getToken() { return localStorage.getItem(this.tokenKey); },
-  logout() { localStorage.removeItem(this.tokenKey); }
+  // Get token from localStorage
+  getToken() {
+    return localStorage.getItem(this.tokenKey);
+  },
+
+  // Clear token
+  logout() {
+    localStorage.removeItem(this.tokenKey);
+  }
 };

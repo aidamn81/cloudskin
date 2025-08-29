@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Aiden's Cloud</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="dist/style.css" />
+</head>
+<body>
+  <header>
+    <img
+      src="assets/apple-touch-icon.png"
+      alt="Aiden's Cloud Logo"
+      class="logo"
+    />
+
+    <div class="controls">
+      <input type="text" id="search" placeholder="Search..." />
+      <select id="sort">
+        <option value="name">Sort: Name</option>
+        <option value="date">Sort: Date</option>
+        <option value="size">Sort: Size</option>
+      </select>
+      <button onclick="setFilter('all')">All</button>
+      <button onclick="setFilter('photo')">Photos</button>
+      <button onclick="setFilter('video')">Videos</button>
+      <button onclick="setFilter('favorite')">Favorites</button>
+    </div>
+  </header>
+
+  <div id="breadcrumbs"></div>
+  <main id="grid"></main>
+
+  <!-- Viewer (modal) -->
+  <div class="viewer" id="viewer">
+    <span class="close-btn" onclick="closeViewer()">&times;</span>
+    <div id="viewer-content"></div>
+  </div>
+
+  <!-- Scripts (order matters) -->
+  <script src="dist/pcloud-auth.js"></script>
+  <script src="dist/pcloud-api.js"></script>
+  <script src="dist/app.js" defer></script>
+</body>
+</html>

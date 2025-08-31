@@ -1,4 +1,4 @@
-// === Aiden's Cloud — App.js ===
+// Aiden's Cloud — App.js (token auto-check + clear only on 2094)
 
 const DEFAULT_COVER = "assets/foldercover.png";
 const LS_LINKED = "pcloud_linked_folders";
@@ -28,16 +28,15 @@ function addLinkedFolder(id, name, cover) {
   }
 }
 
-async function validateToken() {
+// Soft validation (do NOT clear token here)
+async function tokenSeemsValid() {
   const t = PCLOUD_OAUTH.getToken();
   if (!t) return false;
   try {
     const res = await fetch(`https://api.pcloud.com/userinfo?access_token=${encodeURIComponent(t)}`);
     const data = await res.json();
-    if (data.result === 0) return true;
-  } catch {}
-  PCLOUD_OAUTH.logout();
-  return false;
+    return data.result === 0;
+  } catch { return true; } // network/CORS? don't punish; let real call decide
 }
 
 async function renderHome() {
@@ -47,7 +46,7 @@ async function renderHome() {
   const authBar = document.createElement("div");
   authBar.style.cssText = "width:100%;display:flex;justify-content:center;gap:10px;margin-bottom:10px;";
 
-  const ok = await validateToken();
+  const ok = await tokenSeemsValid();
   if (!ok) {
     const b = document.createElement("button");
     b.textContent = "Connect pCloud";
@@ -70,6 +69,7 @@ async function renderHome() {
   }
   grid.appendChild(authBar);
 
+  // Demo tile
   localData.folders.forEach(f => {
     const d = document.createElement("div");
     d.className = "folder";
@@ -77,6 +77,7 @@ async function renderHome() {
     grid.appendChild(d);
   });
 
+  // Linked pCloud tiles
   loadLinkedFolders().forEach(f => {
     const d = document.createElement("div");
     d.className = "folder";
@@ -93,14 +94,24 @@ async function openPcloudFolder(folderid, name) {
   grid.innerHTML = "";
   document.getElementById("breadcrumbs").innerHTML = `Home / ${name}`;
 
-  const ok = await validateToken();
-  if (!ok) { renderHome(); return; }
-
+  // Try listing; only clear token on an actual 2094
   let listing;
-  try { listing = await pcloud.listFolder(folderid); }
-  catch (e) { grid.innerHTML = `<p>Error: ${e.message}</p>`; return; }
+  try {
+    listing = await pcloud.listFolder(folderid);
+  } catch (e) {
+    const msg = String(e.message || "");
+    if (msg.includes("2094") || msg.toLowerCase().includes("invalid 'access_token'")) {
+      PCLOUD_OAUTH.logout();
+      grid.innerHTML = `<p style="color:#fff">Session expired or invalid token. Please tap “Connect pCloud”.</p>`;
+      await renderHome();
+      return;
+    } else {
+      grid.innerHTML = `<p style="color:#fff">Error: ${msg}</p>`;
+      return;
+    }
+  }
 
-  (listing.metadata.contents || []).forEach(c => {
+  (listing.metadata?.contents || []).forEach(c => {
     if (c.isfolder) {
       const d = document.createElement("div");
       d.className = "folder";
@@ -120,6 +131,6 @@ async function openPcloudFolder(folderid, name) {
 function closeViewer() { document.getElementById("viewer").style.display = "none"; }
 
 document.addEventListener("DOMContentLoaded", () => {
-  PCLOUD_OAUTH.handleRedirectHash();
+  PCLOUD_OAUTH.handleRedirectHash(); // save token if returning from login
   renderHome();
 });

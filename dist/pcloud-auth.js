@@ -1,14 +1,14 @@
-// pcloud-auth.js — iPad-friendly debug version
+// pcloud-auth.js — iPad-friendly debug (no alert)
 
 (function () {
-  function getBox() { return document.getElementById('debug'); }
+  function box() { return document.getElementById('debug'); }
   function log(msg) {
-    const box = getBox();
+    const el = box();
     const line = `[pcloud] ${new Date().toLocaleTimeString()} — ${msg}`;
-    if (box) {
-      box.style.display = 'block';
-      box.textContent += (box.textContent ? '\n' : '') + line;
-      box.scrollTop = box.scrollHeight;
+    if (el) {
+      el.style.display = 'block';
+      el.textContent += (el.textContent ? '\n' : '') + line;
+      el.scrollTop = el.scrollHeight;
     }
     try { console.log(line); } catch {}
   }
@@ -27,8 +27,7 @@
       });
       const url = `${this.authBase}?${params.toString()}`;
       log(`Redirecting to OAuth: ${url}`);
-      alert("Going to pCloud to log in… Tap OK.");
-      window.location.href = url;
+      window.location.href = url; // no alert; just go
     },
 
     handleRedirectHash() {
@@ -41,7 +40,9 @@
         log(`Access token saved (first 10): ${token.slice(0,10)}…`);
         history.replaceState({}, document.title, window.location.pathname + window.location.search);
         return token;
-      } else { log("No access_token present in hash."); }
+      } else {
+        log("No access_token present in hash.");
+      }
       return null;
     },
 
@@ -54,21 +55,6 @@
     logout() {
       try { localStorage.removeItem(this.tokenKey); } catch {}
       log("Token cleared.");
-    }
-  };
-
-  window.debugPcloud = {
-    show() { const t = PCLOUD_OAUTH.getToken(); alert(t ? t.slice(0,40)+"…" : "No token"); },
-    clear() { PCLOUD_OAUTH.logout(); alert("Cleared. Reloading…"); location.reload(); },
-    async validate() {
-      const t = PCLOUD_OAUTH.getToken();
-      if (!t) { alert("No token saved"); return; }
-      try {
-        const res = await fetch(`https://api.pcloud.com/userinfo?access_token=${encodeURIComponent(t)}`);
-        const data = await res.json();
-        log(`/userinfo → ${JSON.stringify(data)}`);
-        alert(data.result === 0 ? "Token looks valid ✅" : `Token invalid ❌ (result ${data.result})`);
-      } catch (e) { log("Validate failed: " + e); alert("Validation failed."); }
     }
   };
 })();

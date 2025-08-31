@@ -1,4 +1,4 @@
-// === Aiden's Cloud — App.js (Connect as real link) ===
+// === Aiden's Cloud — App.js (robust Connect flow) ===
 
 const DEFAULT_COVER = "assets/foldercover.png";
 const LS_LINKED = "pcloud_linked_folders";
@@ -15,10 +15,30 @@ function addLinkedFolder(folderid, name, cover) {
   }
 }
 
-// Minimal demo so the screen isn't empty
+// Minimal demo tile
 const localData = { folders: [ { id:"holiday", name:"Holiday", cover: DEFAULT_COVER, files: [] } ] };
 
-// Soft token probe (don’t clear token here)
+// Build the exact OAuth URL we need
+function buildOAuthUrl() {
+  const params = new URLSearchParams({
+    client_id: PCLOUD_OAUTH.clientId,
+    response_type: "token",
+    redirect_uri: PCLOUD_OAUTH.redirectUri
+  });
+  const url = `${PCLOUD_OAUTH.authBase}?${params.toString()}`;
+  // Log into the on-page debug box if present
+  try {
+    const el = document.getElementById("debug");
+    if (el) {
+      el.style.display = "block";
+      el.textContent += (el.textContent ? "\n" : "") + `[app] OAuth URL: ${url}`;
+      el.scrollTop = el.scrollHeight;
+    }
+  } catch {}
+  return url;
+}
+
+// Soft probe; don't clear token on probe failure
 async function tokenSeemsValid() {
   const t = PCLOUD_OAUTH.getToken();
   if (!t) return false;
@@ -34,38 +54,36 @@ async function renderHome() {
   grid.innerHTML = "";
 
   const authBar = document.createElement("div");
-  authBar.style.cssText = "width:100%;display:flex;justify-content:center;gap:10px;margin-bottom:10px;";
+  authBar.style.cssText = "width:100%;display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:12px;";
 
   const ok = await tokenSeemsValid();
 
   if (!ok) {
-    // Build the REAL OAuth URL and use an <a> so iPad always navigates.
-    const params = new URLSearchParams({
-      client_id: PCLOUD_OAUTH.clientId,
-      response_type: "token",
-      redirect_uri: PCLOUD_OAUTH.redirectUri
-    });
-    const oauthUrl = `${PCLOUD_OAUTH.authBase}?${params.toString()}`;
+    const oauthUrl = buildOAuthUrl();
 
-    const a = document.createElement("a");
-    a.href = oauthUrl;
-    a.textContent = "Connect pCloud";
-    a.setAttribute("role", "button");
-    a.style.cssText = "padding:6px 10px;border-radius:6px;background:rgba(255,255,255,0.18);color:#fff;text-decoration:none;display:inline-block;";
-    // As a backup, also call login() if JS click runs:
-    a.addEventListener("click", (e) => {
-      // let the link work; but if something intercepts, we still force it:
-      if (e.defaultPrevented) return;
-      try { PCLOUD_OAUTH.login(); } catch {}
-    });
+    // 1) Real link button (best for iPad)
+    const linkBtn = document.createElement("a");
+    linkBtn.href = oauthUrl;
+    linkBtn.textContent = "Connect pCloud";
+    linkBtn.setAttribute("role", "button");
+    linkBtn.style.cssText = "padding:8px 12px;border-radius:6px;background:rgba(255,255,255,0.18);color:#fff;text-decoration:none;display:inline-block;";
 
-    // Optional: text link fallback below
-    const help = document.createElement("div");
-    help.style.cssText = "font-size:12px;opacity:.8;text-align:center;";
-    help.innerHTML = `If the button doesn’t open pCloud, <a href="${oauthUrl}" style="color:#fff;text-decoration:underline;">tap here</a>.`;
+    // 2) JS fallback button
+    const jsBtn = document.createElement("button");
+    jsBtn.textContent = "Try again";
+    jsBtn.onclick = () => { window.location.assign(oauthUrl); };
 
-    authBar.appendChild(a);
-    authBar.appendChild(help);
+    // 3) Plain URL fallback
+    const urlLine = document.createElement("div");
+    urlLine.style.cssText = "font-size:12px;opacity:.85;text-align:center;max-width:92vw;word-break:break-all;";
+    urlLine.innerHTML = `If it still doesn’t open, tap this link: <a href="${oauthUrl}" style="color:#fff;text-decoration:underline;">${oauthUrl}</a>`;
+
+    // Force reconnect (clears any token then opens)
+    const forceBtn = document.createElement("button");
+    forceBtn.textContent = "Force reconnect to pCloud";
+    forceBtn.onclick = () => { PCLOUD_OAUTH.logout(); window.location.replace(oauthUrl); };
+
+    authBar.append(linkBtn, jsBtn, forceBtn, urlLine);
   } else {
     const addBtn = document.createElement("button");
     addBtn.textContent = "Add pCloud folder";
@@ -77,6 +95,7 @@ async function renderHome() {
 
     authBar.append(addBtn, logoutBtn);
   }
+
   grid.appendChild(authBar);
 
   // Demo tile
@@ -99,7 +118,7 @@ async function renderHome() {
   document.getElementById("breadcrumbs").innerHTML = "Home";
 }
 
-// ----- pCloud folder view (unchanged) -----
+// ---- pCloud folder view (unchanged logic) ----
 async function openPcloudFolder(folderid, name) {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
@@ -141,7 +160,7 @@ async function openPcloudFolder(folderid, name) {
   });
 }
 
-// ===== Folder Picker (same as before) =====
+// ===== Folder Picker (unchanged) =====
 let pickerStack = [];
 let pickerSelection = null;
 

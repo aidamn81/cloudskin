@@ -1,9 +1,8 @@
-// === Aiden's Cloud — App.js (Folder Picker UI) ===
+// === Aiden's Cloud — App.js (Connect as real link) ===
 
 const DEFAULT_COVER = "assets/foldercover.png";
 const LS_LINKED = "pcloud_linked_folders";
 
-// --- Linked folders storage ---
 function loadLinkedFolders() {
   try { return JSON.parse(localStorage.getItem(LS_LINKED)) || []; } catch { return []; }
 }
@@ -16,14 +15,10 @@ function addLinkedFolder(folderid, name, cover) {
   }
 }
 
-// --- Minimal local demo so the page never looks empty ---
-const localData = {
-  folders: [
-    { id: "holiday", name: "Holiday", cover: DEFAULT_COVER, files: [] }
-  ]
-};
+// Minimal demo so the screen isn't empty
+const localData = { folders: [ { id:"holiday", name:"Holiday", cover: DEFAULT_COVER, files: [] } ] };
 
-// --- Soft token check (don’t clear here; real calls will decide) ---
+// Soft token probe (don’t clear token here)
 async function tokenSeemsValid() {
   const t = PCLOUD_OAUTH.getToken();
   if (!t) return false;
@@ -31,13 +26,9 @@ async function tokenSeemsValid() {
     const res = await fetch(`https://api.pcloud.com/userinfo?access_token=${encodeURIComponent(t)}`);
     const data = await res.json();
     return data.result === 0;
-  } catch {
-    // If network/CORS blocks this probe, just allow and let API calls decide
-    return true;
-  }
+  } catch { return true; }
 }
 
-// --- Render HOME ---
 async function renderHome() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
@@ -48,22 +39,47 @@ async function renderHome() {
   const ok = await tokenSeemsValid();
 
   if (!ok) {
-    const b = document.createElement("button");
-    b.textContent = "Connect pCloud";
-    b.onclick = () => PCLOUD_OAUTH.login();
-    authBar.appendChild(b);
+    // Build the REAL OAuth URL and use an <a> so iPad always navigates.
+    const params = new URLSearchParams({
+      client_id: PCLOUD_OAUTH.clientId,
+      response_type: "token",
+      redirect_uri: PCLOUD_OAUTH.redirectUri
+    });
+    const oauthUrl = `${PCLOUD_OAUTH.authBase}?${params.toString()}`;
+
+    const a = document.createElement("a");
+    a.href = oauthUrl;
+    a.textContent = "Connect pCloud";
+    a.setAttribute("role", "button");
+    a.style.cssText = "padding:6px 10px;border-radius:6px;background:rgba(255,255,255,0.18);color:#fff;text-decoration:none;display:inline-block;";
+    // As a backup, also call login() if JS click runs:
+    a.addEventListener("click", (e) => {
+      // let the link work; but if something intercepts, we still force it:
+      if (e.defaultPrevented) return;
+      try { PCLOUD_OAUTH.login(); } catch {}
+    });
+
+    // Optional: text link fallback below
+    const help = document.createElement("div");
+    help.style.cssText = "font-size:12px;opacity:.8;text-align:center;";
+    help.innerHTML = `If the button doesn’t open pCloud, <a href="${oauthUrl}" style="color:#fff;text-decoration:underline;">tap here</a>.`;
+
+    authBar.appendChild(a);
+    authBar.appendChild(help);
   } else {
     const addBtn = document.createElement("button");
     addBtn.textContent = "Add pCloud folder";
-    addBtn.onclick = () => openPicker(); // ← new UI picker
+    addBtn.onclick = () => openPicker();
+
     const logoutBtn = document.createElement("button");
     logoutBtn.textContent = "Log out of pCloud";
     logoutBtn.onclick = () => { PCLOUD_OAUTH.logout(); renderHome(); };
+
     authBar.append(addBtn, logoutBtn);
   }
   grid.appendChild(authBar);
 
-  // Local demo tile
+  // Demo tile
   localData.folders.forEach(f => {
     const d = document.createElement("div");
     d.className = "folder";
@@ -83,16 +99,15 @@ async function renderHome() {
   document.getElementById("breadcrumbs").innerHTML = "Home";
 }
 
-// --- Open a pCloud folder view ---
+// ----- pCloud folder view (unchanged) -----
 async function openPcloudFolder(folderid, name) {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
   document.getElementById("breadcrumbs").innerHTML = `Home / ${name}`;
 
   let listing;
-  try {
-    listing = await pcloud.listFolder(folderid);
-  } catch (e) {
+  try { listing = await pcloud.listFolder(folderid); }
+  catch (e) {
     const msg = String(e.message || "");
     if (msg.includes("2094") || msg.toLowerCase().includes("invalid 'access_token'")) {
       PCLOUD_OAUTH.logout();
@@ -109,7 +124,6 @@ async function openPcloudFolder(folderid, name) {
   const subfolders = items.filter(x => x.isfolder);
   const files = items.filter(x => x.isfile);
 
-  // Subfolders
   subfolders.forEach(f => {
     const d = document.createElement("div");
     d.className = "folder";
@@ -118,7 +132,6 @@ async function openPcloudFolder(folderid, name) {
     grid.appendChild(d);
   });
 
-  // Files (simple thumbs)
   files.forEach(f => {
     const d = document.createElement("div");
     d.className = "file";
@@ -128,59 +141,39 @@ async function openPcloudFolder(folderid, name) {
   });
 }
 
-// =====================
-// Folder Picker (UI)
-// =====================
-let pickerStack = [];     // [{id, name}]
+// ===== Folder Picker (same as before) =====
+let pickerStack = [];
 let pickerSelection = null;
 
 function openPicker() {
-  pickerStack = [{ id: 0, name: "/" }];  // start at root
+  pickerStack = [{ id: 0, name: "/" }];
   pickerSelection = null;
   const modal = document.getElementById("picker");
   modal.setAttribute("aria-hidden", "false");
   document.getElementById("picker-use").disabled = true;
   loadPickerLevel(0);
 }
-
 function closePicker() {
-  const modal = document.getElementById("picker");
-  modal.setAttribute("aria-hidden", "true");
-  pickerStack = [];
-  pickerSelection = null;
+  document.getElementById("picker").setAttribute("aria-hidden", "true");
+  pickerStack = []; pickerSelection = null;
 }
-
 async function loadPickerLevel(folderid) {
-  // Build breadcrumbs
-  const bcHtml = pickerStack
-    .map((n, i) => `<span class="crumb" data-i="${i}">${n.name}</span>`)
-    .join(" / ");
   const bcEl = document.getElementById("picker-breadcrumbs");
-  bcEl.innerHTML = bcHtml;
-  bcEl.querySelectorAll(".crumb").forEach(el => {
-    el.onclick = () => {
-      const i = Number(el.dataset.i);
-      pickerStack = pickerStack.slice(0, i + 1);
-      loadPickerLevel(pickerStack[pickerStack.length - 1].id);
-    };
+  bcEl.innerHTML = pickerStack.map((n,i)=>`<span class="crumb" data-i="${i}">${n.name}</span>`).join(" / ");
+  bcEl.querySelectorAll(".crumb").forEach(el=>{
+    el.onclick = ()=>{ const i=+el.dataset.i; pickerStack=pickerStack.slice(0,i+1); loadPickerLevel(pickerStack[pickerStack.length-1].id); };
   });
 
-  // Load current folder
   const listEl = document.getElementById("picker-list");
   listEl.innerHTML = `<p>Loading…</p>`;
-
   let listing;
-  try {
-    listing = await pcloud.listFolder(folderid);
-  } catch (e) {
-    listEl.innerHTML = `<p style="color:#fff">Error: ${e.message}</p>`;
-    return;
-  }
+  try { listing = await pcloud.listFolder(folderid); }
+  catch (e) { listEl.innerHTML = `<p style="color:#fff">Error: ${e.message}</p>`; return; }
 
-  const folders = (listing.metadata?.contents || []).filter(x => x.isfolder);
-  listEl.innerHTML = folders.length ? "" : `<p>No subfolders.</p>`;
+  const folders = (listing.metadata?.contents || []).filter(x=>x.isfolder);
+  listEl.innerHTML = folders.length ? "" : "<p>No subfolders.</p>";
 
-  folders.forEach(f => {
+  folders.forEach(f=>{
     const row = document.createElement("div");
     row.className = "picker-row";
     row.innerHTML = `
@@ -188,41 +181,36 @@ async function loadPickerLevel(folderid) {
       <div>
         <button data-open="${f.folderid}">Open</button>
         <button data-select="${f.folderid}">Select</button>
-      </div>
-    `;
+      </div>`;
     listEl.appendChild(row);
   });
 
-  // Wire buttons
-  listEl.querySelectorAll("button[data-open]").forEach(b => {
-    b.onclick = () => {
-      const id = Number(b.getAttribute("data-open"));
+  listEl.querySelectorAll("button[data-open]").forEach(b=>{
+    b.onclick = ()=>{
+      const id = +b.getAttribute("data-open");
       const name = b.closest(".picker-row").firstElementChild.textContent.trim();
       pickerStack.push({ id, name });
       loadPickerLevel(id);
     };
   });
-  listEl.querySelectorAll("button[data-select]").forEach(b => {
-    b.onclick = () => {
+  listEl.querySelectorAll("button[data-select]").forEach(b=>{
+    b.onclick = ()=>{
       pickerSelection = {
-        id: Number(b.getAttribute("data-select")),
+        id: +b.getAttribute("data-select"),
         name: b.closest(".picker-row").firstElementChild.textContent.trim()
       };
       document.getElementById("picker-use").disabled = false;
     };
   });
 
-  // “Use this folder” = selected or current level
-  document.getElementById("picker-use").onclick = () => {
-    const chosen = pickerSelection || pickerStack[pickerStack.length - 1];
+  document.getElementById("picker-use").onclick = ()=>{
+    const chosen = pickerSelection || pickerStack[pickerStack.length-1];
     addLinkedFolder(chosen.id, chosen.name, DEFAULT_COVER);
-    closePicker();
-    renderHome();
+    closePicker(); renderHome();
   };
 }
 
-// --- Boot ---
-document.addEventListener("DOMContentLoaded", () => {
-  PCLOUD_OAUTH.handleRedirectHash(); // save token if returning from OAuth
+document.addEventListener("DOMContentLoaded", ()=>{
+  PCLOUD_OAUTH.handleRedirectHash();
   renderHome();
 });

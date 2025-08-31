@@ -1,14 +1,14 @@
-// === Aiden's Cloud — App.js (presets + auto-login when needed) ===
+// === Aiden's Cloud — App.js (presets + careful token handling) ===
 
 const DEFAULT_COVER = "assets/foldercover.png";
 
-// --- Your permanent pCloud tiles ---
+// Your permanent pCloud tiles
 const PRESET_FOLDERS = [
   { id: 18407348626, name: "Public",  cover: DEFAULT_COVER },
   { id: 18397779235, name: "Gallery", cover: DEFAULT_COVER }
 ];
 
-// Build OAuth URL
+// Build OAuth URL (plain link works best on iPad)
 function buildOAuthUrl() {
   const params = new URLSearchParams({
     client_id: PCLOUD_OAUTH.clientId,
@@ -18,14 +18,11 @@ function buildOAuthUrl() {
   return `${PCLOUD_OAUTH.authBase}?${params.toString()}`;
 }
 
-// Ensure we’re authenticated; if not, go to pCloud login
+// Ensure login; if not logged in, navigate to OAuth
 function ensureAuthOrLogin() {
   const t = PCLOUD_OAUTH.getToken();
   if (t) return true;
-  // No token -> navigate with a plain link-style redirect (best for iPad)
-  const url = buildOAuthUrl();
-  // Use replace() so back button doesn’t bounce between app and auth stub
-  window.location.replace(url);
+  window.location.replace(buildOAuthUrl());
   return false;
 }
 
@@ -34,7 +31,6 @@ async function renderHome() {
   const grid = document.getElementById("grid");
   grid.innerHTML = "";
 
-  // Top bar
   const bar = document.createElement("div");
   bar.style.cssText = "width:100%;display:flex;flex-direction:column;align-items:center;gap:8px;margin-bottom:14px;";
 
@@ -72,9 +68,9 @@ async function renderHome() {
   document.getElementById("breadcrumbs").innerHTML = "Home";
 }
 
-// Open folder; if not logged in, go to login first
+// Open with auth guard
 function openPcloudFolderOrLogin(folderid, name) {
-  if (!ensureAuthOrLogin()) return; // will navigate to pCloud
+  if (!ensureAuthOrLogin()) return; // will redirect to OAuth
   openPcloudFolder(folderid, name);
 }
 
@@ -84,41 +80,47 @@ async function openPcloudFolder(folderid, name) {
   grid.innerHTML = "";
   document.getElementById("breadcrumbs").innerHTML = `Home / ${name}`;
 
-  let listing;
   try {
-    listing = await pcloud.listFolder(folderid);
+    const listing = await pcloud.listFolder(folderid);
+    const items = listing.metadata?.contents || [];
+    const subfolders = items.filter(x => x.isfolder);
+    const files = items.filter(x => x.isfile);
+
+    subfolders.forEach(f => {
+      const d = document.createElement("div");
+      d.className = "folder";
+      d.innerHTML = `<img src="${DEFAULT_COVER}" class="folder-cover" alt=""><p class="folder-name">${f.name}</p>`;
+      d.onclick = () => openPcloudFolder(f.folderid, f.name);
+      grid.appendChild(d);
+    });
+
+    files.forEach(f => {
+      const d = document.createElement("div");
+      d.className = "file";
+      const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name);
+      d.innerHTML = `<img src="${isImage ? '' : 'https://picsum.photos/200'}" class="file-thumb" alt=""><p class="file-name">${f.name}</p>`;
+      grid.appendChild(d);
+    });
+
   } catch (e) {
     const msg = String(e.message || "");
-    // If token is invalid (2094), clear and ask to reconnect
+    // If we *think* the token is bad, double-check before clearing it
     if (msg.includes("2094") || msg.toLowerCase().includes("invalid 'access_token'")) {
-      PCLOUD_OAUTH.logout();
-      grid.innerHTML = `<p style="color:#fff">Session expired or invalid token. Tap “Connect to pCloud”.</p>`;
-      await renderHome();
+      const stillValid = await pcloud.validateToken().catch(()=>false);
+      if (!stillValid) {
+        PCLOUD_OAUTH.logout();
+        grid.innerHTML = `<p style="color:#fff">Session expired or invalid token. Tap “Connect to pCloud”.</p>`;
+        await renderHome();
+        return;
+      }
+      // Token is valid → show error instead of logging out
+      grid.innerHTML = `<p style="color:#fff">Temporary error from pCloud. Please try again.</p>`;
       return;
     }
+
     grid.innerHTML = `<p style="color:#fff">Error: ${msg}</p>`;
     return;
   }
-
-  const items = listing.metadata?.contents || [];
-  const subfolders = items.filter(x => x.isfolder);
-  const files = items.filter(x => x.isfile);
-
-  subfolders.forEach(f => {
-    const d = document.createElement("div");
-    d.className = "folder";
-    d.innerHTML = `<img src="${DEFAULT_COVER}" class="folder-cover" alt=""><p class="folder-name">${f.name}</p>`;
-    d.onclick = () => openPcloudFolder(f.folderid, f.name);
-    grid.appendChild(d);
-  });
-
-  files.forEach(f => {
-    const d = document.createElement("div");
-    d.className = "file";
-    const isImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name);
-    d.innerHTML = `<img src="${isImage ? '' : 'https://picsum.photos/200'}" class="file-thumb" alt=""><p class="file-name">${f.name}</p>`;
-    grid.appendChild(d);
-  });
 }
 
 // ===== Boot =====
